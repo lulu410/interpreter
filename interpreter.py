@@ -12,7 +12,35 @@ class VirtualMachine(object):
 		frame = self.make_frame(code, global_names=global_names, 
 								local_names=local_names)
 
-	def make_frame(self, code, callargs={}, global_names=None, local_names=None)
+	def make_frame(self, code, callargs={}, global_names=None, local_names=None):
+		if global_names is not None and local_names is not None:
+			local_names = global_names
+		elif self.frames:
+			global_names = self.frame.global_names
+			local_names = {}
+		else:
+			global_names = local_names = {
+				'__builtins__': __builtins__,
+				'__name__': '__main__',
+				'__doc__': None,
+				'__package': None,
+			}
+		local_names.update(callargs)
+		frame = Frame(code, global_names, local_names, self.frame)
+		return frame
+
+	def push_frame(self, frame):
+		self.frames.append(frame)
+		self.frame = frame
+
+	def pop_frame(self):
+		self.frames.pop()
+		if self.frames:
+			self.frame = self.frames[-1]
+		else:
+			self.frame = None
+
+	
 
 
 class Frame(object):
@@ -31,3 +59,39 @@ class Frame(object):
 
 		self.last_exception = 0
 		self.block_stack = []
+
+
+
+class Function(object):
+	__slots__ = [
+		'func_code', 'func_name', 'func_defaults', 'func_globals',
+		'func_locals', 'func_dict', 'func_closure',
+		'__name__', '__dict__', '__doc__',
+		'_vm', '_func',
+	]
+
+	def __init__(self, name, code, globs, defaults, closure, vm):
+		self.vm = vm
+		self.func_code = code
+		self.func_name = self.__name__ = name or code.co_name
+		self.func_defaults = tuple(defaults)
+		self.func_locals = self._vm.frame.func_locals
+		self.__dict__ = {}
+		self.func_closure = closure
+		if code.co_consts:
+			self.__doc__ = code.co_consts[0] 
+		else:
+			self.__doc__ = None
+
+		kw = {
+			'argdefs': self.func_defaults,
+		}
+		if closure:
+			kw['closure'] = tuple(make_cell(0) for _ in closure)
+		self._func = types.FunctionType(code, globs, **kw)
+
+	def __call__(self, *args, **kwargs):
+		callargs = inspect.getcallargs(self._func, {})
+		frame = self._vm.make_frame(self.func_code, callargs, self.func_globals, {})
+		return self._vm.run_frame
+		
